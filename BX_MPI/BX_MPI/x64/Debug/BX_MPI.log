@@ -1,0 +1,3 @@
+﻿  test.cpp
+D:\MyVS\BX_MPI\BX_MPI\test.cpp(89,20): warning C4267: “初始化”: 从“size_t”转换到“int”，可能丢失数据
+  BX_MPI.vcxproj -> D:\MyVS\BX_MPI\x64\Debug\BX_MPI.exe
