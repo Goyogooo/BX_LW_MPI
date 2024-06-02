@@ -1,38 +1,13 @@
-//test
-/*#include <mpi.h>
-#include <iostream>
-
-int main(int argc, char* argv[]) {
-    int rank, size;
-
-    // 初始化 MPI 环境
-    MPI_Init(&argc, &argv);
-
-    // 获取当前进程的秩
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-    // 获取总进程数
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-
-    // 输出当前进程的秩和总进程数
-    std::cout << "Greetings from process " << rank << " of " << size << std::endl;
-
-    // 结束 MPI 环境
-    MPI_Finalize();
-
-    return 0;
-}
-*/
-
-#include <mpi.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
 #include <chrono>
+#include <set>
 #include <algorithm>
-#include <cstdint>
-using namespace std;
-// 读取小端格式的四字节无符号整数
+#include <mpi.h>
+#include <numeric>
+#include <chrono>
+
 uint32_t read_uint32_le(std::ifstream& stream) {
     uint32_t value;
     char bytes[4];
@@ -44,7 +19,6 @@ uint32_t read_uint32_le(std::ifstream& stream) {
     return value;
 }
 
-// 读取一个整数数组
 std::vector<uint32_t> read_array(std::ifstream& stream) {
     uint32_t length = read_uint32_le(stream);
     std::vector<uint32_t> array(length);
@@ -54,122 +28,160 @@ std::vector<uint32_t> read_array(std::ifstream& stream) {
     return array;
 }
 
-// Find the intersection of two sorted arrays
-vector<uint32_t> findIntersection(const vector<uint32_t>& array1, const vector<uint32_t>& array2) {
-    vector<uint32_t> result;
-    for (uint32_t element : array1) {
-        if (binary_search(array2.begin(), array2.end(), element)) {
-            result.push_back(element);
-        }
-    }
-    return result;
-}
-int main(int argc, char** argv) {
-    int rank, size;
+int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    vector<uint32_t> local_array1, local_array2;
-    ifstream file;
-    if (rank == 0) {
-        file.open("D:/MyVS/BX_LW/ExpIndex", ios::binary);
+    int world_size;
+    int world_rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+    std::vector<uint32_t> small_array, large_array;
+    if (world_rank == 0) {
+        std::ifstream file("D:/MyVS/BX_LW/ExpIndex", std::ios::binary);
         if (!file) {
-            cerr << "Cannot open file\n";
+            std::cerr << "Unable to open file" << std::endl;
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
-        file.seekg(32832, ios::beg);
-        local_array1 = read_array(file);
-        local_array2 = read_array(file);
+        file.seekg(32832, std::ios::beg);
+        auto array1 = read_array(file);
+        auto array2 = read_array(file);
         file.close();
+
+        // Determine which array is smaller
+        if (array1.size() <= array2.size()) {
+            small_array = array1;
+            large_array = array2;
+        }
+        else {
+            small_array = array2;
+            large_array = array1;
+        }
     }
 
-    vector<uint32_t> local_result = findIntersection(local_array1, local_array2);
-    vector<uint32_t> global_result;
+    // Record the start time
+    auto start_time = std::chrono::steady_clock::now();
+
+    // Broadcast the size of the small array
+    int small_size = small_array.size();
+    MPI_Bcast(&small_size, 1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
+    if (world_rank != 0) {
+        small_array.resize(small_size);
+    }
+    // Broadcast the small array
+    MPI_Bcast(small_array.data(), small_size, MPI_UINT32_T, 0, MPI_COMM_WORLD);
+
+    int large_size;
+    if (world_rank == 0) {
+        large_size = large_array.size();
+    }
+    MPI_Bcast(&large_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    if (world_rank != 0) {
+        large_array.resize(large_size);
+    }
+
+    int* sendcounts = new int[world_size];
+    int* displs = new int[world_size];
+    int remainder = large_array.size() % (world_size-1);
+    for (int i = 0; i < world_size-1; ++i) {
+        sendcounts[i] = large_array.size() / (world_size-1);  // 每个进程先分配到基本的元素数量
+    }
+    sendcounts[world_size - 1] = remainder;  // 将所有余数元素添加到最后一个进程的分配中
+    int sum = 0;
+    for (int i = 0; i < world_size; ++i) {
+        displs[i] = sum;          // 计算偏移量
+        sum += sendcounts[i];     // 更新sum为下一个偏移量的起点
+    }
+
+    std::vector<uint32_t> local_large_array(sendcounts[world_rank]);
+    MPI_Scatterv(large_array.data(), sendcounts, displs, MPI_UINT32_T,
+        local_large_array.data(), sendcounts[world_rank], MPI_UINT32_T, 0, MPI_COMM_WORLD);
+
+    /*
+    // After MPI_Scatterv
+    std::cout << "Process " << world_rank << ": local large array size = " << local_large_array.size();
+    if (!local_large_array.empty()) {
+        std::cout << ", first element = " << local_large_array[0];
+    }
+    std::cout << std::endl;
+    */
+    
+    std::vector<uint32_t> local_result;
+    std::set_intersection(small_array.begin(), small_array.end(),
+        local_large_array.begin(), local_large_array.end(),
+        std::back_inserter(local_result));
+   /*
+    // 输出本地交集的大小，用于调试
+    int local_size1 = local_result.size();
+    std::cout << "Process " << world_rank << " has " << local_size1 << " intersection elements." << std::endl;
+    */
     int local_size = local_result.size();
-    vector<int> sizes(size);
-    vector<int> displs(size);
+    std::vector<int> recv_sizes(world_size);
+    MPI_Gather(&local_size, 1, MPI_INT, recv_sizes.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    MPI_Gather(&local_size, 1, MPI_INT, sizes.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-    if (rank == 0) {
-        int total_size = 0;
-        for (int i = 0; i < size; ++i) {
-            displs[i] = total_size;
-            total_size += sizes[i];
+    std::vector<int> displs_gather(world_size);
+    std::vector<uint32_t> global_result;
+    if (world_rank == 0) {
+        global_result.resize(std::accumulate(recv_sizes.begin(), recv_sizes.end(), 0));
+        int offset = 0;
+        for (int i = 0; i < world_size; ++i) {
+            displs_gather[i] = offset;
+            offset += recv_sizes[i];
         }
-        global_result.resize(total_size);
     }
 
     MPI_Gatherv(local_result.data(), local_size, MPI_UINT32_T,
-        global_result.data(), sizes.data(), displs.data(), MPI_UINT32_T, 0, MPI_COMM_WORLD);
+        global_result.data(), recv_sizes.data(), displs_gather.data(), MPI_UINT32_T, 0, MPI_COMM_WORLD);
 
-    if (rank == 0) {
-        ofstream resultFile("D:/MyVS/BX_MPI/result.txt", ios::app);
-        if (!resultFile.is_open()) {
-            cerr << "Cannot open file to write results\n";
-            MPI_Abort(MPI_COMM_WORLD, 1);
-        }
-        for (uint32_t value : global_result) {
-            resultFile << value << ' ';
-        }
-        resultFile.close();
+    // Record the end time
+    auto end_time = std::chrono::steady_clock::now();
+
+    // Calculate the elapsed time
+    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+
+    if (world_rank == 0) {
+        std::cout << "Total results size: " << global_result.size() <<",  time: "<< elapsed_time<< ",  world_size: "<<world_size<<std::endl;
     }
 
+    delete[] sendcounts;
+    delete[] displs;
     MPI_Finalize();
+
+    
+
+
+    
+
+    /*
+    // Compute the intersection
+    std::vector<uint32_t> local_result;
+    std::set_intersection(small_array.begin(), small_array.end(),
+        local_large_array.begin(), local_large_array.end(),
+        std::back_inserter(local_result));
+
+    // Gather results at the root
+    std::vector<uint32_t> global_result;
+    if (world_rank == 0) {
+        global_result = local_result;
+        for (int i = 1; i < world_size; i++) {
+            uint32_t size;
+            MPI_Recv(&size, 1, MPI_UINT32_T, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            std::vector<uint32_t> temp_result(size);
+            MPI_Recv(temp_result.data(), size, MPI_UINT32_T, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            global_result.insert(global_result.end(), temp_result.begin(), temp_result.end());
+        }
+    }
+    else {
+        uint32_t size = local_result.size();
+        MPI_Send(&size, 1, MPI_UINT32_T, 0, 0, MPI_COMM_WORLD);
+        MPI_Send(local_result.data(), size, MPI_UINT32_T, 0, 0, MPI_COMM_WORLD);
+    }
+
+    if (world_rank == 0) {
+        std::cout << "Total results size: " << global_result.size() << std::endl;
+    }
+
+    MPI_Finalize();*/
     return 0;
 }
-
-
-/*int main() {
-    // double arg = 0;
-    for (int j = 0; j < 1000; j++) {
-        std::ifstream file("D:/MyVS/BX_MPI/ExpIndex", std::ios::binary);
-        if (!file) {
-            std::cerr << "无法打开文件" << std::endl;
-            return 1;
-        }
-        file.seekg(32832, std::ios::beg);
-        std::vector<uint32_t> array = read_array(file);
-        std::vector<float> floatArray;
-        // 转换整数数组到浮点数组
-        for (int value : array) {
-            floatArray.push_back(static_cast<float>(value));
-        }
-        uint32_t length = floatArray.size();
-        std::vector<float> compress(length);
-        compress[0] = floatArray[0];
-        //auto beforeTime = std::chrono::steady_clock::now();
-        for (uint32_t i = 1; i < length; i++)
-        {
-            compress[i] = array[i] - array[i - 1];
-        }
-        // auto afterTime = std::chrono::steady_clock::now();
-         //double time = std::chrono::duration<double>(afterTime - beforeTime).count();
-        // arg += time;
-        // std::cout << " time=" << time << "seconds" << std::endl;
-         /*std::ofstream f("D:/MyVS/BXFOR/compress.txt", std::ios::app);
-         if (!f.is_open()) {
-             std::cerr << "无法打开文件" << std::endl;
-             return 0;
-         }
-         for (float value : compress) {
-             f << value << ' ';
-         }
-         f.close();
-         std::ofstream f2("D:/MyVS/BXFOR/array.txt", std::ios::app);
-         if (!f2.is_open()) {
-             std::cerr << "无法打开文件" << std::endl;
-             return 0;
-         }
-         for (uint32_t value : array) {
-             f2 << value << ' ';
-         }
-         f2.close();
-
-         file.close();
-    }
-    // std::cout << " time=" << arg/100 << "seconds" << std::endl;
-
-    return 0;
-}*/
