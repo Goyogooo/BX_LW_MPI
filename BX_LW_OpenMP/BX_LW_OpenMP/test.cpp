@@ -26,24 +26,34 @@ std::vector<uint32_t> read_array(std::ifstream& stream) {
 }
 
 int main() {
+    int threads = 4;  // 您想要设置的线程数量
+    omp_set_num_threads(threads);
     std::ifstream file("D:/MyVS/BX_LW/ExpIndex", std::ios::binary);
     if (!file) {
         std::cerr << "无法打开文件" << std::endl;
         return 1;
     }
     file.seekg(32832, std::ios::beg);
-    std::vector<uint32_t> small_array = read_array(file);
-    std::vector<uint32_t> large_array = read_array(file);
+    std::vector<uint32_t> array1 = read_array(file);
+    std::vector<uint32_t> array2 = read_array(file);
     file.close();
-
-    std::sort(small_array.begin(), small_array.end());
-    std::sort(large_array.begin(), large_array.end());
+    std::vector<uint32_t> small_array;
+    std::vector<uint32_t> large_array;
+    if (array1.size() > array2.size()) {
+        small_array=array2;
+        large_array=array1;
+    }
+    else {
+        small_array = array1;
+        large_array = array2;
+    } 
 
     std::vector<std::vector<uint32_t>> results;
 
     auto beforeTime = std::chrono::steady_clock::now();
 
     int num_threads;
+   
 #pragma omp parallel
     {
 #pragma omp single
@@ -70,7 +80,7 @@ int main() {
 
     auto afterTime = std::chrono::steady_clock::now();
     double time = std::chrono::duration<double>(afterTime - beforeTime).count();
-    std::ofstream f3("D:/MyVS/BX_LW_OpenMP/result.txt", std::ios::app);
+    /*std::ofstream f3("D:/MyVS/BX_LW_OpenMP/result.txt", std::ios::app);
     if (!f3.is_open()) {
         std::cerr << "无法打开文件" << std::endl;
         return 0;
@@ -79,8 +89,8 @@ int main() {
     for (uint32_t value : final_result) {
         f3 << value << ' ';
     }
-    f3.close();
-    std::cout << "Intersection size: " << final_result.size() << ", time: " << time << " seconds" << std::endl;
+    f3.close();*/
+    std::cout << "Intersection size: " << final_result.size() << ", time: " << time << " seconds" <<", num_thread: " <<num_threads<< std::endl;
 
     return 0;
 }
