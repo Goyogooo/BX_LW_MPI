@@ -26,7 +26,7 @@ std::vector<uint32_t> read_array(std::ifstream& stream) {
 }
 
 int main() {
-    int threads = 4;  // 您想要设置的线程数量
+    int threads = 4;  
     omp_set_num_threads(threads);
     std::ifstream file("D:/MyVS/BX_LW/ExpIndex", std::ios::binary);
     if (!file) {
