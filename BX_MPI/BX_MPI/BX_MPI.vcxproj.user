@@ -2,7 +2,7 @@
 <Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LocalDebuggerCommand>D:\MyMSMPI\Bin\mpiexec.exe</LocalDebuggerCommand>
-    <LocalDebuggerCommandArguments>-n 32 $(TargetPath)</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>-n 8 $(TargetPath)</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
 </Project>
