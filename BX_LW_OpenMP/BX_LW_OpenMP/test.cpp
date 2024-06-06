@@ -80,7 +80,7 @@ int main() {
 
     auto afterTime = std::chrono::steady_clock::now();
     double time = std::chrono::duration<double>(afterTime - beforeTime).count();
-    /*std::ofstream f3("D:/MyVS/BX_LW_OpenMP/result.txt", std::ios::app);
+    std::ofstream f3("D:/MyVS/BX_LW_OpenMP/result.txt", std::ios::app);
     if (!f3.is_open()) {
         std::cerr << "无法打开文件" << std::endl;
         return 0;
@@ -89,7 +89,7 @@ int main() {
     for (uint32_t value : final_result) {
         f3 << value << ' ';
     }
-    f3.close();*/
+    f3.close();
     std::cout << "Intersection size: " << final_result.size() << ", time: " << time << " seconds" <<", num_thread: " <<num_threads<< std::endl;
 
     return 0;
